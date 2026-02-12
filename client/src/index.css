@@ -1,0 +1,62 @@
+html {
+    --bg-col: #db482b;
+    --ingredient-btn-col: #ffffff;
+
+    font-family: quicksand;
+    font-weight: 600;
+
+    color: white;
+
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--bg-col);
+    padding: 0;
+    margin: 0;
+
+    display: flex;
+    justify-content: center;
+}
+
+main {
+    margin: 0px 30px;
+}
+
+img.side-banner {
+    height: 128px;
+}
+
+.creation-window {
+    display: flex;
+}
+
+.creation-menu {
+    flex: 2;
+}
+
+.ingredient-button-holder {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.ingredient-btn {
+    width: 100px;
+    height: 100px;
+}
+
+.layered-item-container {
+    flex:1;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    position: relative;
+}
+
+.ingredient-layer {
+    position: absolute
+}
+
+.part-group-container > h2 {
+    margin: 10px 0px;
+}
