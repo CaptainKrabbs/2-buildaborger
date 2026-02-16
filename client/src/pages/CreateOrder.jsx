@@ -169,18 +169,17 @@ function BurgerCreationMenu() {
     function dragLayer(event) {
         //node for comparing mouse position
         const compNode = heightLims.current.heightNode;
-        const lowY = compNode.lowY;
         const highY = compNode.lowY + compNode.thickness;
         
         //baseOffsetY - clientY because yOffset is measured from the top
         const localOffsetY = heightLims.current.baseOffset-event.clientY;
         if (localOffsetY > highY) {
             const next = compNode.next;
-            if (next !== null && localOffsetY > next.lowY + next.thickness) // next highY = next.lowY + next.thickness
+            if (next !== null && localOffsetY > next.lowY + (next.thickness/2)) // next centerY = next.lowY + (next.thickness/2)
                 pushHoverLayerUp();
-        } else if (localOffsetY < lowY) {
+        } else if (localOffsetY < compNode.lowY) {
             const prev = compNode.prev;
-            if (prev !== null && localOffsetY < prev.lowY)
+            if (prev !== null && localOffsetY < prev.lowY + (prev.thickness/2))
                 pushHoverLayerDown();
         }
     }
