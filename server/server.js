@@ -25,7 +25,7 @@ function makePartsEntry(folder) {
 }
 
 app.get("/api/parts/burger", async (req, res) => {
-    const allLayers = {
+    const allParts = {
         //bread
         bottomBun: {name: "Bottom Bun", id: "bottomBun", width: 440, height: 60, thickness: 60, offsetTop: 0},
         bun: {name: "Bun", id: "bun", width: 440, height: 60, thickness: 60, offsetTop: 0},
@@ -56,7 +56,31 @@ app.get("/api/parts/burger", async (req, res) => {
         structure: {
             //The layer to have things added to by default (non-static)
             defaultActiveSectionIdx: 1,
+            //prev and next are the indexes of the prev/next editable section
+            /*
             sections: [
+                {   isStatic: true,
+                    layerIds: ["bottomBun"]
+                },
+                {   isStatic: false,
+                    prev: null,
+                    next: 3,
+                    layerIds: ["patty", "bun", "patty", "bun", "patty", "bun", "bacon"]
+                },
+                {   isStatic: true,
+                    layerIds:["bun", "patty"]
+                },
+                {   isStatic: false,
+                    prev: 1,
+                    next: null,
+                    layerIds: []
+                },
+                {   isStatic: true,
+                    layerIds: ["topBun"]
+                }
+            ]
+            */
+           sections: [
                 {   isStatic: true,
                     layerIds: ["bottomBun"]
                 },
@@ -71,9 +95,9 @@ app.get("/api/parts/burger", async (req, res) => {
             ]
         },
 
-        groupOrder: ["bread", "patty", "vegetables", "extra"],
+        groupOrder: ["patty", "vegetables", "extra", "bread"],
 
-        allLayers: Object.fromEntries(Object.entries(allLayers).map( ([key, value]) => [key, layerMaker(value)])),
+        allParts: Object.fromEntries(Object.entries(allParts).map( ([key, value]) => [key, layerMaker(value)])),
 
         groups: {
             bread: {name: "bread", parts: breadOrder},
