@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { SERVER_URL, capitalise } from '../utils';
+import { SERVER_URL, capitalise, setAtIdx, insertAtIdx, insertFirst, insertLast, removeFirst, removeLast, swap } from '../utils';
 
 const MAX_DISPLAY_WIDTH = 300;
 
@@ -29,11 +29,12 @@ function BurgerCreationMenu() {
                 sectionLayers.push({nameId: layerId, uId: nextLayerId.current});
                 nextLayerId.current++;
             }
-            convBurgerSections.push({isStatic: section.isStatic, layerIdObjs: sectionLayers})
+            convBurgerSections.push({layerIdObjs: sectionLayers})
         }
         return convBurgerSections;
     }
 
+    // Retrieve burger parts and structure
     useEffect(() => {
         fetch(`${SERVER_URL}/api/parts/burger`)
             .then(res => res.json())
@@ -44,27 +45,28 @@ function BurgerCreationMenu() {
             })
     }, []);
 
+    // Set up events for dragging around layers
     useEffect(() => {
         const layeredItemElem = document.querySelector(".layered-item-container");
         let dragLayerFunc = (event) => dragLayer(event);
 
         //stop events from triggering without selected layer
         function onMouseUp() {
-            console.log("removing")
-            layeredItemElem.removeEventListener("mousemove", dragLayerFunc);
+            document.removeEventListener("mousemove", dragLayerFunc);
             document.removeEventListener("mouseup", onMouseUp);
             setHoverLayer(null);
+            activeSectionIdx.current = hoverLayerData.current.sectionIdx;
+            hoverLayerData.current = null;
             heightLims.current = null;
         }
 
         let selectLayerFunc = (event) => {
             if (selectLayer(event)) {
-                layeredItemElem.addEventListener("mousemove", dragLayerFunc);
+                document.addEventListener("mousemove", dragLayerFunc);
                 document.addEventListener("mouseup", onMouseUp);
             }
         };
         
-
         layeredItemElem.addEventListener("mousedown", selectLayerFunc);
         return function() {
             layeredItemElem.removeEventListener("mousedown", selectLayerFunc)
@@ -75,51 +77,45 @@ function BurgerCreationMenu() {
     function addIngredient(partName) {
         setCurrentBurger(prevBurger => {
             const section = prevBurger[activeSectionIdx.current];
-            const newSection = {isStatic: section.isStatic, layerIdObjs: [...section.layerIdObjs, {nameId: partName, uId: nextLayerId.current}]};
-            return [...prevBurger.slice(0, activeSectionIdx.current), newSection, ...prevBurger.slice(activeSectionIdx.current+1)];
+            const newSection = {layerIdObjs: [...section.layerIdObjs, {nameId: partName, uId: nextLayerId.current}]};
+            return insertAtIdx(prevBurger, activeSectionIdx.current, newSection);
         })
         nextLayerId.current++;
     }
 
     /**
      * Attempts to calculate height of a static array section.
-     * @param {*} section static section of a burger (layered item) to be processed.
-     * @param {*} heightsArr current array of heights
+     * @param {*} sectionIdx index of static section of a burger (layered item) to be processed.
+     * @param {*} tailNode most recent node with height information
      * @param {*} layerOffsetY y-axis offset of the top-most layer in the most recently processed layered-item section.
      */
-    function buildStaticSectionHeight(section, heightsArr, layerOffsetY) {
-        const layerIdObjs = section.layerIdObjs;
+    function buildStaticSectionHeight(sectionIdx, tailNode, layerOffsetY) {
+        //increment by display height of static section
+        const displayThickness = allburgerParts.structure.sections[sectionIdx].height * size_ratio;
+        const newNode = {prev: tailNode, next: null, lowY: layerOffsetY, thickness: displayThickness, isStatic: true};
+        if (tailNode !== null)
+            tailNode.next = newNode;
 
-        for (const layerIdObj of layerIdObjs) {
-            const part = allburgerParts.allParts[layerIdObj.nameId];
-            layerOffsetY += part.thickness * size_ratio;
-        }
-
-        // Register entire section as single layer so you can't place layers inbetween
-        heightsArr.push({prev: null, next: null, offsetY: layerOffsetY})
-
-        return layerOffsetY;
+        layerOffsetY += displayThickness;
+        return {layerOffsetY: layerOffsetY, tail: newNode};
     }
 
-    function buildDynamicSectionHeight(section, heightsArr, layerOffsetY) {
+    function buildDynamicSectionHeight(section, tailNode, layerOffsetY) {
         const layerIdObjs = section.layerIdObjs;
-        let prev = null;
 
         for (let layerIdx = 0; layerIdx < layerIdObjs.length; layerIdx++) {
             const part = allburgerParts.allParts[layerIdObjs[layerIdx].nameId];
             //add node to linked list of heights to allow changing the order of components more easily.
-            const layerThickness = part.thickness * size_ratio;
-            const newCell = {prev: prev, next: null, lowY: layerOffsetY, thickness: layerThickness};
+            const displayThickness = part.thickness * size_ratio;
+            const newNode = {prev: tailNode, next: null, lowY: layerOffsetY, thickness: displayThickness, isStatic: false};
 
-            layerOffsetY += layerThickness;
+            layerOffsetY += displayThickness;
 
-            if (prev !== null)
-                prev["next"] = newCell;
-            heightsArr.push(newCell);
-            prev = newCell;
+            if (tailNode !== null)
+                tailNode.next = newNode;
+            tailNode = newNode;
         }
-
-        return layerOffsetY;
+        return {layerOffsetY: layerOffsetY, tail: tailNode};
     }
 
     // Event where one of the layers in a layered menu item can be dragged around
@@ -134,144 +130,216 @@ function BurgerCreationMenu() {
         const baseOffset = event.currentTarget.getBoundingClientRect().bottom;
         const mouseOffsetY = baseOffset - event.clientY;
         let layerOffsetY = 0;
+        let tailNode = null;
         let heightNode = null;
-        
-        // Find the layer corresponding to the mouse position
-        const heightsArr = [];
+
         for (let sectionIdx = 0; sectionIdx < currentBurger.length; sectionIdx++) {
             const section = currentBurger[sectionIdx]
-            const isStatic = section.isStatic;
+            const isStatic = allburgerParts.structure.sections[sectionIdx].isStatic;
 
             if (isStatic) {
-                layerOffsetY = buildStaticSectionHeight(section, heightsArr, layerOffsetY, mouseOffsetY);
+                ({layerOffsetY: layerOffsetY, tail: tailNode} = buildStaticSectionHeight(sectionIdx, tailNode, layerOffsetY));
                 //not worth building height array if registered click was on
-                if (heightNode === null && layerOffsetY > mouseOffsetY)
+                if (heightNode === null && layerOffsetY > mouseOffsetY) {
                     return false;
+                }
             } else {
-                const sectionStartIdx = heightsArr.length;
-                layerOffsetY = buildDynamicSectionHeight(section, heightsArr, layerOffsetY);
-                //checking if the mouse is within the layer bounds
-                for (let layerIdx = 0; layerIdx < section.layerIdObjs.length; layerIdx++) {
-                    const node = heightsArr[sectionStartIdx+layerIdx];
-                    const compOffsetY = node.lowY + node.thickness;
-                    if (heightNode === null && compOffsetY > mouseOffsetY) {
+                const prevLayeroffsetY = layerOffsetY;
+                ({layerOffsetY: layerOffsetY, tail: tailNode} = buildDynamicSectionHeight(section, tailNode, layerOffsetY));
+                // No point going through the loop if the editable section is empty or if heightnode is already established.
+                if (prevLayeroffsetY != layerOffsetY && heightNode === null) {
+                    let layerIdx = section.layerIdObjs.length - 1;
+                    //checking if the mouse is within the layer bounds
+                    for (let node = tailNode; node !== null && (node.lowY + node.thickness > mouseOffsetY); node = node.prev) {
                         heightNode = node;
+                        layerIdx--;
+                    }
+                    layerIdx++; //last valid node also has layerIdx-- at the end.
+                    if (heightNode !== null) {
                         hoverLayerData.current = {sectionIdx: sectionIdx, layerIdx: layerIdx};
                         setHoverLayer(section.layerIdObjs[layerIdx].uId);
                     }
                 }
             }
         }
-        heightLims.current = {baseOffset: baseOffset, heightNode: heightNode, heightsArr: heightsArr};
+        heightLims.current = {baseOffset: baseOffset, heightNode: heightNode};
         return true;
     }
 
     function dragLayer(event) {
+        //baseOffsetY - clientY because yOffset is measured from the top
+        const mouseOffsetY = heightLims.current.baseOffset-event.clientY;
+
         //node for comparing mouse position
         const compNode = heightLims.current.heightNode;
         const highY = compNode.lowY + compNode.thickness;
-        
-        //baseOffsetY - clientY because yOffset is measured from the top
-        const localOffsetY = heightLims.current.baseOffset-event.clientY;
-        if (localOffsetY > highY) {
-            const next = compNode.next;
-            if (next !== null && localOffsetY > next.lowY + (next.thickness/2)) // next centerY = next.lowY + (next.thickness/2)
-                pushHoverLayerUp();
-        } else if (localOffsetY < compNode.lowY) {
-            const prev = compNode.prev;
-            if (prev !== null && localOffsetY < prev.lowY + (prev.thickness/2))
-                pushHoverLayerDown();
+
+        if (mouseOffsetY > highY) {
+            handleDrag(compNode.next, mouseOffsetY, pushHoverLayerUp, pushHoverLayerNextSection, true);
+        } else if (mouseOffsetY < compNode.lowY) {
+            handleDrag(compNode.prev, mouseOffsetY, pushHoverLayerDown, pushHoverLayerPrevSection, false);
+        }
+    }
+
+    function handleDrag(layerInfo, mouseOffsetY, staticLayerHandler, dynamicLayerHandler, isMoveUp) {
+        if (layerInfo !== null) {
+            if (!layerInfo.isStatic && ( isMoveUp ? mouseOffsetY > layerInfo.lowY + (layerInfo.thickness/2) : mouseOffsetY < layerInfo.lowY + (layerInfo.thickness/2))) // centerY = layerInfo.lowY + (layerInfo.thickness/2)
+                staticLayerHandler();
+            else if (layerInfo.isStatic && (isMoveUp ? mouseOffsetY > layerInfo.lowY + layerInfo.thickness : mouseOffsetY < layerInfo.lowY ))
+                dynamicLayerHandler();
         }
     }
 
     function pushHoverLayerUp() {
-        //check that the layer isn't the last of its section.
-        if (hoverLayerData.current.layerIdx < currentBurger[hoverLayerData.current.sectionIdx].layerIdObjs.length - 1) {
-            setCurrentBurger(prevBurger => {
-                const newSection = prevBurger[hoverLayerData.current.sectionIdx]
-                const layerIds = prevBurger[hoverLayerData.current.sectionIdx].layerIdObjs;
-                //create new section such that [..., target, next, ...] becomes [..., next, target, ...]
-                const layerIdx = hoverLayerData.current.layerIdx;
-                const sectionIdx = hoverLayerData.current.sectionIdx;
-                newSection.layerIdObjs = [...layerIds.slice(0, layerIdx), layerIds[layerIdx+1], layerIds[layerIdx], ...layerIds.slice(layerIdx+2)];
-                // Update hover layer idx
-                hoverLayerData.current.layerIdx++;
-                return [...prevBurger.slice(0, sectionIdx), newSection, ...prevBurger.slice(sectionIdx+1)];
-            })
-
-            if (heightLims.current !== null) {
-                const compNode = heightLims.current.heightNode;
-                const prev = compNode.prev;
-                const next = compNode.next;
-
-                // Adjust perceived positions for layers
-                next.lowY -= compNode.thickness;
-                compNode.lowY += next.thickness;
-
-                /* No checking that next is null because it's a precondition for this function
-                 * (the layerIdx not matching the last of its section should indicate this other data structure is correct, but doesn't guarantee it ).*/
-                const nextnext = next.next;
-                // Adjust compNode links
-                compNode.prev = next;
-                compNode.next = nextnext;
-                // Adjust backlink of node that follows "next"
-                if (nextnext != null)
-                    nextnext.prev = compNode
-                // Adjust previous and next node links
-                next.prev = prev;
-                if (prev !== null)
-                    prev.next = next;
-            } else {
-                console.error("Error on pushing hover layer up: heightLims current is 'null' -> should never happen in this function")
-            }
+        setCurrentBurger(prevBurger => {
+            const newSection = prevBurger[hoverLayerData.current.sectionIdx]
+            const layerIds = prevBurger[hoverLayerData.current.sectionIdx].layerIdObjs;
+            //create new section such that [..., target, next, ...] becomes [..., next, target, ...]
+            const sectionIdx = hoverLayerData.current.sectionIdx;
+            newSection.layerIdObjs = swap(layerIds, hoverLayerData.current.layerIdx);
+            // Update hover layer idx
+            hoverLayerData.current.layerIdx++;
+            return setAtIdx(prevBurger, sectionIdx, newSection);
+        })
+        if (heightLims.current !== null) {
+            swapLayerLinkForward(heightLims.current.heightNode)
         } else {
-            console.error("Layer is already at the top.")
+            console.error("Error on pushing hover layer up: heightLims current is 'null' -> should never happen in this function")
         }
     }
 
-    function pushHoverLayerDown() {
-        //check tat the layer isn't the first of its section.
-        if (hoverLayerData.current.layerIdx !== 0) {
-            setCurrentBurger(prevBurger => {
-                const newSection = prevBurger[hoverLayerData.current.sectionIdx]
-                const layerIds = prevBurger[hoverLayerData.current.sectionIdx].layerIdObjs;
-                //create new section such that [..., prev, target, ...] becomes [..., target, prev, ...]
-                const layerIdx = hoverLayerData.current.layerIdx;
-                const sectionIdx = hoverLayerData.current.sectionIdx;
-                newSection.layerIdObjs = [...layerIds.slice(0, Math.max(0, layerIdx-1)), layerIds[layerIdx], layerIds[layerIdx-1], ...layerIds.slice(layerIdx+1)];
-                // Update hover layer idx
-                hoverLayerData.current.layerIdx--;
-                return [...prevBurger.slice(0, sectionIdx), newSection, ...prevBurger.slice(sectionIdx+1)];
-            })
+    // Pre-condition: hoverLayerData sectionIdx is within existing sections and is not static (is modifiable)
+    //  -> hoverLayerData.current.sectionIdx > 0 && hoverLayerData.current.sectionIdx < allburgerParts.structure.sections.length - 1
+    // && !allburgerParts.structure.sections[hoverLayerData.current.sectionIdx].isStatic
+    function pushHoverLayerNextSection() {
+        // A layer can only be pushed into the next section if it is linked by the current (next non-static section)
+        const currentSectionIdx = hoverLayerData.current.sectionIdx;
+        const nextSectionIdx = allburgerParts.structure.sections[currentSectionIdx].nextIdx;
 
-            if (heightLims.current !== null) {
-                const compNode = heightLims.current.heightNode;
-                const prev = compNode.prev;
-                const next = compNode.next;
-
-                //Adjust perceived positions for layers
-                compNode.lowY -= prev.thickness;
-                prev.lowY += compNode.thickness;
-
-                /* No checking that prev is null because it's a precondition for this function
-                 * (the layerIdx not matching the last of its section should indicate this other data structure is correct, but doesn't guarantee it ).*/
-                const prevprev = prev.prev;
-                // Adjust compNode links
-                compNode.next = prev;
-                compNode.prev = prevprev;
-                // Adjust backlink of node that precedes "prev"
-                if (prevprev != null)
-                    prevprev.next = compNode;
-                // Adjust previous and next node links
-                prev.next = next;
-                if (next !== null)
-                    next.prev = prev;
-            } else {
-                console.error("Error on pushing hover layer down: heightLims current is 'null' -> should never happen in this function")
-            }
-        } else {
-            console.error("Layer is already at the bottom.")
+        // Layer is already in the last editable section, nowhere to go
+        if (nextSectionIdx === null)
+            return;
+        if (allburgerParts.structure.sections[nextSectionIdx].isStatic) {
+            console.error("Error in burger section structure. Editable section pointing to static section")
+            return;
         }
+
+        setCurrentBurger(prevBurger => {
+            const newBurger = [...prevBurger];
+            const layerIdObj = newBurger[hoverLayerData.current.sectionIdx].layerIdObjs[hoverLayerData.current.layerIdx];
+            newBurger[currentSectionIdx] = {layerIdObjs: removeLast(prevBurger[currentSectionIdx].layerIdObjs)};
+            newBurger[nextSectionIdx] = {layerIdObjs: insertFirst(newBurger[nextSectionIdx].layerIdObjs, layerIdObj)};
+
+            // Set hover layer data to first layer of the next section
+            hoverLayerData.current.sectionIdx = nextSectionIdx;
+            hoverLayerData.current.layerIdx = 0;
+            activeSectionIdx.current = nextSectionIdx;
+            return newBurger;
+        });
+
+        for (let i = currentSectionIdx + 1; i < nextSectionIdx; i++)
+            swapLayerLinkForward(heightLims.current.heightNode);
+    }
+
+    function swapLayerLinkForward(compNode) {
+        const prev = compNode.prev;
+        const next = compNode.next;
+
+        // Adjust perceived positions for layers
+        next.lowY -= compNode.thickness;
+        compNode.lowY += next.thickness;
+
+        /* No checking that next is null because it's a precondition for this function
+            * (the layerIdx not matching the last of its section should indicate this other data structure is correct, but doesn't guarantee it ).*/
+        const nextnext = next.next;
+        // Adjust compNode links
+        compNode.prev = next;
+        compNode.next = nextnext;
+        // Adjust backlink of node that follows "next"
+        if (nextnext != null)
+            nextnext.prev = compNode
+        // Adjust previous and next node links
+        next.prev = prev;
+        next.next = compNode;
+        if (prev !== null)
+            prev.next = next;
+    }
+
+    function pushHoverLayerDown() {
+        setCurrentBurger(prevBurger => {
+            const newSection = prevBurger[hoverLayerData.current.sectionIdx]
+            const layerIds = prevBurger[hoverLayerData.current.sectionIdx].layerIdObjs;
+            //create new section such that [..., prev, target, ...] becomes [..., target, prev, ...]
+            const sectionIdx = hoverLayerData.current.sectionIdx;
+            newSection.layerIdObjs = swap(layerIds, hoverLayerData.current.layerIdx-1);
+            // Update hover layer idx
+            hoverLayerData.current.layerIdx--;
+
+            return setAtIdx(prevBurger, sectionIdx, newSection);
+        })
+        if (heightLims.current !== null) {
+            swapLayerLinkBackward(heightLims.current.heightNode);
+        } else {
+            console.error("Error on pushing hover layer down: heightLims current is 'null' -> should never happen in this function")
+        }
+    }
+
+    // Pre-condition: hoverLayerData sectionIdx is within existing sections and is not static (is modifiable)
+    //  -> hoverLayerData.current.sectionIdx > 0 && hoverLayerData.current.sectionIdx < allburgerParts.structure.sections.length - 1
+    // && !allburgerParts.structure.sections[hoverLayerData.current.sectionIdx].isStatic
+    function pushHoverLayerPrevSection() {
+        // A layer can only be pushed into the next section if it is linked by the current (next non-static section)
+        const currentSectionIdx = hoverLayerData.current.sectionIdx;
+        const prevSectionIdx = allburgerParts.structure.sections[currentSectionIdx].prevIdx;
+
+        // Layer is already in the last editable section, nowhere to go
+        if (prevSectionIdx === null)
+            return;
+        if (allburgerParts.structure.sections[prevSectionIdx].isStatic) {
+            console.error("Error in burger section structure. Editable section pointing to static section")
+            return;
+        }
+
+        setCurrentBurger(prevBurger => {
+            const newBurger = [...prevBurger];
+            const layerIdObj = newBurger[hoverLayerData.current.sectionIdx].layerIdObjs[hoverLayerData.current.layerIdx];
+            newBurger[currentSectionIdx] = {layerIdObjs: removeFirst(prevBurger[currentSectionIdx].layerIdObjs)};
+            newBurger[prevSectionIdx] = {layerIdObjs: insertLast(newBurger[prevSectionIdx].layerIdObjs, layerIdObj)};
+
+            // Set hover layer data to first layer of the prev section
+            hoverLayerData.current.sectionIdx = prevSectionIdx;
+            hoverLayerData.current.layerIdx = newBurger[prevSectionIdx].layerIdObjs.length - 1;
+            return newBurger;
+        });
+
+        for (let i = currentSectionIdx - 1; i > prevSectionIdx; i--)
+            swapLayerLinkBackward(heightLims.current.heightNode);
+    }
+
+    function swapLayerLinkBackward(compNode) {
+        const prev = compNode.prev;
+        if (prev === null) {
+            console.error("Error on swapping layer with previous: No such layer.")
+            return
+        }
+        const next = compNode.next;
+
+        //Adjust perceived positions for layers
+        compNode.lowY -= prev.thickness;
+        prev.lowY += compNode.thickness;
+
+        const prevprev = prev.prev;
+        // Adjust compNode links
+        compNode.next = prev;
+        compNode.prev = prevprev;
+        // Adjust backlink of node that precedes "prev"
+        if (prevprev != null)
+            prevprev.next = compNode;
+        // Adjust previous and next node links
+        prev.next = next;
+        prev.prev = compNode;
+        if (next !== null)
+            next.prev = prev;
     }
 
     const partGroupElems = allburgerParts.groupOrder !== undefined ? allburgerParts.groupOrder.map(groupName => {
@@ -298,7 +366,7 @@ function BurgerCreationMenu() {
     //Unscaled cumulative offset for the displayed layers
     let bottomOffsetY = 0;
     let layerNum = 1;
-    for (const [sectionIdx, section] of currentBurger.entries()) {
+    for (const section of currentBurger) {
         for (const layerIdObj of section.layerIdObjs) {
             const part = allburgerParts.allParts[layerIdObj.nameId];
             const width = part.width * size_ratio;
@@ -316,8 +384,6 @@ function BurgerCreationMenu() {
             <img
                 style={style}
                 key={layerIdObj.uId}
-                data-u-id={layerIdObj.uId}
-                data-section-idx={sectionIdx}
                 className="ingredient-layer"
                 src={part.imgUrl}
                 alt={`Burger layer ${layerNum}: ${part.name}`}

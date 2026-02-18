@@ -38,7 +38,7 @@ app.get("/api/parts/burger", async (req, res) => {
         onionSlices: {name: "Onion Slices", id: "onionSlices", width: 420, height: 10, thickness: 10, offsetTop: 0},
         pickles: {name: "Pickles", id: "pickles", width: 456, height: 12, thickness: 6, offsetTop: 0},
         //extra
-        egg: {name: "Egg", id: "egg", width: 411, height: 49.17, thickness: 10, offsetTop: 5.7},
+        egg: {name: "Egg", id: "egg", width: 411, height: 49.17, thickness: 10, offsetTop: 6.13},
         bacon: {name: "Bacon", id: "bacon", width: 551.07, height: 52.56, thickness: 12, offsetTop: 0},
         cheese: {name: "Cheese", id: "cheese", width: 470, height: 40, thickness: 6, offsetTop: 0}
     }
@@ -55,47 +55,71 @@ app.get("/api/parts/burger", async (req, res) => {
         maxWidth: 600,
         structure: {
             //The layer to have things added to by default (non-static)
-            defaultActiveSectionIdx: 1,
+            //defaultActiveSectionIdx: 1,
+            defaultActiveSectionIdx: 3,
             //prev and next are the indexes of the prev/next editable section
+            sections: [
+                {   isStatic: true,
+                    prevIdx: null,
+                    nextIdx: null,
+                    layerIds: ["bottomBun"],
+                    height: allParts["bottomBun"].thickness
+                },
+                {   isStatic: false,
+                    prevIdx: null,
+                    nextIdx: 3,
+                    layerIds: [],
+                    height: 0
+                },
+                {   isStatic: true,
+                    prevIdx: null,
+                    nextIdx: null,
+                    layerIds:["bun", "patty"],
+                    height: allParts["bun"].thickness + allParts["patty"].thickness
+                },
+                {   isStatic: false,
+                    prevIdx: 1,
+                    nextIdx: 5,
+                    layerIds: [],
+                    height: 0
+                },
+                {   isStatic: true,
+                    prevIdx: null,
+                    nextIdx: null,
+                    layerIds:["bun", "patty"],
+                    height: allParts["bun"].thickness + allParts["patty"].thickness
+                },
+                {   isStatic: false,
+                    prevIdx: 3,
+                    nextIdx: null,
+                    layerIds: [],
+                    height: 0
+                },
+                {   isStatic: true,
+                    prevIdx: null,
+                    nextIdx: null,
+                    layerIds: ["topBun"],
+                    height: allParts["topBun"].thickness
+                }
+            ]
             /*
             sections: [
                 {   isStatic: true,
                     layerIds: ["bottomBun"]
                 },
                 {   isStatic: false,
-                    prev: null,
-                    next: 3,
-                    layerIds: ["patty", "bun", "patty", "bun", "patty", "bun", "bacon"]
-                },
-                {   isStatic: true,
-                    layerIds:["bun", "patty"]
-                },
-                {   isStatic: false,
-                    prev: 1,
-                    next: null,
+                    prevIdx: null,
+                    nextIdx: null,
                     layerIds: []
                 },
                 {   isStatic: true,
                     layerIds: ["topBun"]
                 }
             ]
-            */
-           sections: [
-                {   isStatic: true,
-                    layerIds: ["bottomBun"]
-                },
-                {   isStatic: false,
-                    prev: null,
-                    next: null,
-                    layerIds: []
-                },
-                {   isStatic: true,
-                    layerIds: ["topBun"]
-                }
-            ]
+                    */
         },
 
-        groupOrder: ["patty", "vegetables", "extra", "bread"],
+        groupOrder: ["vegetables", "patty", "extra", "bread"],
 
         allParts: Object.fromEntries(Object.entries(allParts).map( ([key, value]) => [key, layerMaker(value)])),
 
